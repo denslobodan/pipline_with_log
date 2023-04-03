@@ -2,13 +2,32 @@ package main
 
 import (
 	"bufio"
-	"fmt"
+	//"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+type Loggers struct {
+	logInfo *log.Logger
+	logWarn *log.Logger
+	logErr  *log.Logger
+}
+
+func (l *Loggers) info(v ...interface{}) {
+	l.logInfo.Println(v...)
+}
+
+func (l *Loggers) warn(v ...interface{}) {
+	l.logWarn.Println(v...)
+}
+
+func (l *Loggers) err(v ...interface{}) {
+	l.logErr.Println(v...)
+}
 
 // Интервал очистки кольцевого буфера
 const bufferDrainInterval time.Duration = 30 * time.Second
@@ -101,6 +120,18 @@ func (p *PipeLineInt) runStageInt(stage StageInt, sourceChan <-chan int) <-chan 
 	return stage(p.done, sourceChan)
 }
 func main() {
+	// создаём флаги
+	flags := log.LstdFlags | log.Lshortfile | log.LUTC
+	// создаём логгеры
+	logInfo := log.New(os.Stdout, "INFO:\t", flags)
+	logWarn := log.New(os.Stdout, "WARN:\t", flags)
+	logErr := log.New(os.Stdout, "ERR:\t", flags)
+
+	l := Loggers{
+		logInfo: logInfo,
+		logWarn: logWarn,
+		logErr:  logErr,
+	}
 	// источник данных
 	dataSource := func() (<-chan int, <-chan bool) {
 		c := make(chan int)
@@ -113,12 +144,12 @@ func main() {
 				scanner.Scan()
 				data = scanner.Text()
 				if strings.EqualFold(data, "exit") {
-					fmt.Println("Программа завершила работу!")
+					l.info("Программа завершила работу!")
 					return
 				}
 				i, err := strconv.Atoi(data)
 				if err != nil {
-					fmt.Println("Программа обрабатывает только целые числа!")
+					l.err("Программа обрабатывает только целые числа!")
 					continue
 				}
 				c <- i
@@ -133,6 +164,9 @@ func main() {
 			for {
 				select {
 				case data := <-c:
+					if data < 0 {
+						l.warn("Отфильтровано значение:", data)
+					}
 					if data > 0 {
 						select {
 						case convertedIntChan <- data:
@@ -160,6 +194,8 @@ func main() {
 						case <-done:
 							return
 						}
+					} else {
+						l.warn("Отфильтровано значение: ", data)
 					}
 				case <-done:
 					return
@@ -177,6 +213,7 @@ func main() {
 				select {
 				case data := <-c:
 					buffer.Push(data)
+					l.info("В буффер добавлено значение: ", data)
 				case <-done:
 					return
 				}
@@ -215,7 +252,7 @@ func main() {
 		for {
 			select {
 			case data := <-c:
-				fmt.Printf("Обработаны данные: %d\n", data)
+				l.info("Обработаны данные: ", data)
 			case <-done:
 				return
 			}
